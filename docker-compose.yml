@@ -3,8 +3,19 @@ services:
     build: .
     image: nodeseek-keywords-bot
     container_name: nodeseek-keywords-bot
+    user: "0:0"
     restart: unless-stopped
     env_file: .env
+    read_only: true
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    pids_limit: 100
     volumes:
       # Persist the SQLite database across container restarts / rebuilds
       - ./data:/app/data

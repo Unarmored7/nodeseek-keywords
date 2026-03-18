@@ -2,7 +2,7 @@
 python-telegram-bot[job-queue]==21.10
 
 # Async HTTP client for fetching the RSS feed
-aiohttp==3.11.12
+aiohttp==3.13.3
 
 # RSS / Atom parser
 feedparser==6.0.11

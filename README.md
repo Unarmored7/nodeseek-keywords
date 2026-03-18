@@ -55,6 +55,8 @@ docker compose up -d
 
 数据库文件保存在 `./data/keywords.db`，容器重建后数据不丢失。
 
+默认的 `docker-compose.yml` 已包含基础安全加固：容器以非 root 用户运行、根文件系统只读、关闭额外 Linux capabilities，并仅保留 `./data` 为可写持久化目录。
+
 ### 方式二：直接运行
 
 **要求：Python 3.11+**
@@ -83,6 +85,13 @@ python main.py
 | `MAX_NOTIFICATIONS_PER_POLL` | ❌ | `10` | 每轮最多单独推送的消息数，超出部分自动汇总 |
 | `RSS_FAIL_ALERT_THRESHOLD` | ❌ | `3` | RSS 连续拉取失败多少次后发送告警 |
 | `DATABASE_PATH` | ❌ | `data/keywords.db` | SQLite 数据库文件路径 |
+
+## 安全说明
+
+- Bot 仅响应 `ALLOWED_USER_ID` 指定的 Telegram 用户。
+- 推送消息中的外部链接仅允许 `https` 地址，以减少 RSS 内容注入带来的风险。
+- 自定义正则表达式已做基础长度限制，但仍建议保持简洁，避免使用过于复杂的模式。
+- 建议不要把 `.env`、`data/` 或数据库文件提交到 Git 仓库或同步到公开目录。
 
 ## Bot 命令
 

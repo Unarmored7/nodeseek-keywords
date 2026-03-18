@@ -8,6 +8,7 @@ import html
 import logging
 import re
 from typing import Optional
+from urllib.parse import urlsplit
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -19,6 +20,9 @@ import storage
 
 logger = logging.getLogger(__name__)
 
+_MAX_KEYWORD_LENGTH = 128
+_MAX_REGEX_LENGTH = 128
+
 # ── Module-level state ─────────────────────────────────────────────────────────
 
 # Tracks consecutive RSS fetch failures for health alerting
@@ -27,9 +31,18 @@ _rss_fail_count: int = 0
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-def _esc(text: str) -> str:
+def _esc(text: object) -> str:
     """Escape text for safe inclusion in HTML parse-mode messages."""
     return html.escape(str(text))
+
+
+def _safe_link(link: str, label: Optional[str] = None) -> str:
+    """Render a safe external link for Telegram HTML messages."""
+    text = _esc(label or link)
+    parts = urlsplit(link)
+    if parts.scheme == "https" and parts.netloc:
+        return f'<a href="{_esc(link)}">{text}</a>'
+    return text
 
 
 def _authorized(update: Update) -> bool:
@@ -125,8 +138,19 @@ async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("❌ 关键词不能为空。")
         return
 
+    if len(keyword) > _MAX_KEYWORD_LENGTH:
+        await update.message.reply_text(
+            f"❌ 关键词过长，最多 {_MAX_KEYWORD_LENGTH} 个字符。"
+        )
+        return
+
     # Validate regex syntax upfront to give immediate feedback
     if match_mode == "regex":
+        if len(keyword) > _MAX_REGEX_LENGTH:
+            await update.message.reply_text(
+                f"❌ 正则表达式过长，最多 {_MAX_REGEX_LENGTH} 个字符。"
+            )
+            return
         try:
             re.compile(keyword)
         except re.error as exc:
@@ -287,7 +311,7 @@ async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         status_icon = "❌ " if r["status"] == "failed" else ""
         parts.append(
             f"{status_icon}{kw_tags} · <i>{_esc(cat_name)}</i> · {sent_at}\n"
-            f"  <a href=\"{r['link']}\">{_esc(r['title'])}</a>"
+            f"  {_safe_link(r['link'], r['title'])}"
         )
 
     await update.message.reply_text(
@@ -340,7 +364,7 @@ def _build_notification(post: dict, matched_keywords: list[str]) -> str:
         f"📌 <b>{_esc(post['title'])}</b>\n"
         f"🏷 {_esc(cat_name)}\n"
         f"👤 {_esc(post['author'])}\n"
-        f"🔗 {post['link']}"
+        f"🔗 {_safe_link(post['link'])}"
     )
 
 
@@ -482,13 +506,8 @@ async def poll_rss(context: ContextTypes.DEFAULT_TYPE) -> None:
             kw_str = " ".join(f"<code>{_esc(k)}</code>" for k in matched_kws)
             summary.append(
                 f"• {kw_str} — "
-                f"<a href=\"{post['link']}\">{_esc(post['title'])}</a>"
+                f"{_safe_link(post['link'], post['title'])}"
             )
-            for kw in matched_kws:
-                storage.log_notification(
-                    post["post_id"], kw, post["title"],
-                    post["link"], post["category"], post["author"], "sent",
-                )
         try:
             await context.bot.send_message(
                 chat_id=config.ALLOWED_USER_ID,
@@ -496,8 +515,20 @@ async def poll_rss(context: ContextTypes.DEFAULT_TYPE) -> None:
                 parse_mode=ParseMode.HTML,
                 disable_web_page_preview=True,
             )
+            for post, matched_kws in overflow:
+                for kw in matched_kws:
+                    storage.log_notification(
+                        post["post_id"], kw, post["title"],
+                        post["link"], post["category"], post["author"], "sent",
+                    )
         except Exception as exc:
             logger.error("Failed to send overflow summary: %s", exc)
+            for post, matched_kws in overflow:
+                for kw in matched_kws:
+                    storage.log_notification(
+                        post["post_id"], kw, post["title"],
+                        post["link"], post["category"], post["author"], "failed",
+                    )
 
     logger.info(
         "Poll complete — %d sent, %d in overflow summary", sent_count, len(overflow)
